@@ -3,7 +3,7 @@ name: Sync to Upstream
 on:
   schedule:
       # scheduled every 5 minutes
-    - cron:  '*/5 * * * *'
+    - cron:  '*/5 3 * * *'
   # puede lanzarse desde la UI
   workflow_dispatch:
 

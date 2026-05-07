@@ -1,18 +1,26 @@
-name: Sync Fork
-
+name: Sync Fork with Upstream
 on:
   schedule:
-    - cron: '0 * * * *'
-  workflow_dispatch:
+    - cron: '40 * * * *'  # Runs daily at midnight UTC
+  workflow_dispatch:  # Allows manual triggering
 
 jobs:
   sync:
     runs-on: ubuntu-latest
-
     steps:
-      - uses: tgymnich/fork-sync@v1.8
+      - name: Checkout Forked Repository
+        uses: actions/checkout@v3
         with:
-          owner: CVEProject
-          base: main
-          head: main
           token: ${{ secrets.FORK_SYNC_TOKEN }}
+
+      - name: Add Upstream Remote
+        run: git remote add upstream https://github.com/CVEProject/cvelistV5.git
+
+      - name: Fetch Upstream Changes
+        run: git fetch upstream
+
+      - name: Merge Changes and Push
+        run: |
+          git checkout main
+          git merge upstream/main
+          git push origin main

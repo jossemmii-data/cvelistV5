@@ -1,0 +1,26 @@
+name: Test Snowflake Connection (OIDC)
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write   # Imprescindible para que GitHub genere el token OIDC
+  contents: read
+
+jobs:
+  test-connection:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Snowflake CLI
+        uses: snowflakedb/snowflake-cli-action@v2.0
+        with:
+          use-oidc: true
+          cli-version: "3.11"
+
+      - name: Test Connection
+        env:
+          SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+        run: snow connection test -x

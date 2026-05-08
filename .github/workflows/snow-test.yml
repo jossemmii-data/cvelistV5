@@ -26,9 +26,21 @@ jobs:
           use-oidc: true
           cli-version: "3.11"
           
-      - name: Debug config
+      - name: Configure Snowflake Connection
+        env:
+          SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+          SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
+          SNOWFLAKE_SCHEMA: ${{ secrets.SNOWFLAKE_SCHEMA }}
         run: |
-          cat ~/.snowflake/config.toml || echo "No existe config.toml"
+          mkdir -p ~/.snowflake
+          cat > ~/.snowflake/config.toml << EOF
+          [connections.default]
+          account = "$SNOWFLAKE_ACCOUNT"
+          database = "$SNOWFLAKE_DATABASE"
+          schema = "$SNOWFLAKE_SCHEMA"
+          authenticator = "WORKLOAD_IDENTITY"
+          EOF
+          cat ~/.snowflake/config.toml
 
       - name: Execute Procedure
         run: snow snowpark execute procedure "sync_cve_delta('***.***.***', '***.***.***')"

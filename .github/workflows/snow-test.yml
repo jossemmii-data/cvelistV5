@@ -40,7 +40,7 @@ jobs:
           schema = "$SNOWFLAKE_SCHEMA"
           authenticator = "WORKLOAD_IDENTITY"
           EOF
-          cat ~/.snowflake/config.toml
+          chmod 0600 ~/.snowflake/config.toml
 
       - name: Execute Procedure
         run: snow snowpark execute procedure "sync_cve_delta('***.***.***', '***.***.***')"

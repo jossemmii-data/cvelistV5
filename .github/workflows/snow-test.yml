@@ -14,12 +14,6 @@ jobs:
         with:
           persist-credentials: false
           
-      - name: Show OIDC Token Claims
-        run: |
-          TOKEN=$(curl -s -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=snowflakecomputing.com" | jq -r '.value')
-          echo $TOKEN | cut -d'.' -f2 | base64 -d 2>/dev/null | jq .
-          
       - name: Setup Snowflake CLI
         uses: snowflakedb/snowflake-cli-action@v2.0
         with:
@@ -31,6 +25,7 @@ jobs:
           SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
           SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
           SNOWFLAKE_SCHEMA: ${{ secrets.SNOWFLAKE_SCHEMA }}
+          SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
         run: |
           mkdir -p ~/.snowflake
           cat > ~/.snowflake/config.toml << EOF
@@ -38,22 +33,11 @@ jobs:
           account = "$SNOWFLAKE_ACCOUNT"
           database = "$SNOWFLAKE_DATABASE"
           schema = "$SNOWFLAKE_SCHEMA"
+          warehouse = "$SNOWFLAKE_WAREHOUSE"
           authenticator = "WORKLOAD_IDENTITY"
           EOF
           chmod 0600 ~/.snowflake/config.toml
 
-      - name: Execute Procedure
-        run: snow snowpark execute procedure "sync_cve_delta('***.***.***', '***.***.***')"
-      - name: Test Connection
-        env:
-          SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
-          SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
-          SNOWFLAKE_SCHEMA: ${{ secrets.SNOWFLAKE_SCHEMA }}
-        run: snow connection test -x
 
-      - name: Execute Function
-        env:
-          SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
-          SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
-          SNOWFLAKE_SCHEMA: ${{ secrets.SNOWFLAKE_SCHEMA }}
+      - name: Execute Procedure
         run: snow snowpark execute procedure "sync_cve_delta('${{ secrets.SNOWFLAKE_DATABASE }}.${{ secrets.SNOWFLAKE_SCHEMA }}.${{ secrets.SNOWFLAKE_REPO }}', '${{ secrets.SNOWFLAKE_DATABASE }}.${{ secrets.SNOWFLAKE_SCHEMA }}.${{ secrets.SNOWFLAKE_REPO }}')"

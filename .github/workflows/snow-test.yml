@@ -25,7 +25,13 @@ jobs:
         with:
           use-oidc: true
           cli-version: "3.11"
+          
+      - name: Debug config
+        run: |
+          cat ~/.snowflake/config.toml || echo "No existe config.toml"
 
+      - name: Execute Procedure
+        run: snow snowpark execute procedure "sync_cve_delta('***.***.***', '***.***.***')"
       - name: Test Connection
         env:
           SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}

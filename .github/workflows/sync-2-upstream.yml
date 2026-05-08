@@ -1,19 +1,50 @@
-name: Sync Fork
-
+name: Sync Fork and Load to Snowflake
 on:
   schedule:
     - cron: '00 * * * *'
-
   workflow_dispatch:
-
+permissions:
+  id-token: write
+  contents: read
 jobs:
   sync:
     runs-on: ubuntu-latest
-
     steps:
-      - uses: tgymnich/fork-sync@v1.8
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Sync Fork
+        uses: tgymnich/fork-sync@v1.8
         with:
           owner: CVEProject
           base: main
           head: main
           token: ${{ secrets.FORK_SYNC_TOKEN }}
+
+      - name: Setup Snowflake CLI
+        uses: snowflakedb/snowflake-cli-action@v2.0
+        with:
+          use-oidc: true
+          cli-version: "3.11"
+
+      - name: Configure Snowflake Connection
+        env:
+          SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+          SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
+          SNOWFLAKE_SCHEMA: ${{ secrets.SNOWFLAKE_SCHEMA }}
+          SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
+        run: |
+          mkdir -p ~/.snowflake
+          cat > ~/.snowflake/config.toml << EOF
+          [connections.default]
+          account = "$SNOWFLAKE_ACCOUNT"
+          database = "$SNOWFLAKE_DATABASE"
+          schema = "$SNOWFLAKE_SCHEMA"
+          warehouse = "$SNOWFLAKE_WAREHOUSE"
+          authenticator = "WORKLOAD_IDENTITY"
+          EOF
+          chmod 0600 ~/.snowflake/config.toml
+
+      - name: Execute Procedure
+        run: snow snowpark execute procedure "sync_cve_delta('${{ secrets.SNOWFLAKE_DATABASE }}.${{ secrets.SNOWFLAKE_SCHEMA }}.${{ secrets.SNOWFLAKE_REPO }}', '${{ secrets.SNOWFLAKE_DATABASE }}.${{ secrets.SNOWFLAKE_SCHEMA }}.${{ secrets.SNOWFLAKE_REPO }}')"

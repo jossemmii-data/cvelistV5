@@ -1,5 +1,39 @@
 [
   {
+    "fetchTime": "2026-05-10T22:46:51.164Z",
+    "numberOfChanges": 2,
+    "new": [
+      {
+        "cveId": "CVE-2026-8249",
+        "cveOrgLink": "https://www.cve.org/CVERecord?id=CVE-2026-8249",
+        "githubLink": "https://raw.githubusercontent.com/CVEProject/cvelistV5/main/cves/2026/8xxx/CVE-2026-8249.json",
+        "dateUpdated": "2026-05-10T22:30:13.353Z"
+      },
+      {
+        "cveId": "CVE-2026-8250",
+        "cveOrgLink": "https://www.cve.org/CVERecord?id=CVE-2026-8250",
+        "githubLink": "https://raw.githubusercontent.com/CVEProject/cvelistV5/main/cves/2026/8xxx/CVE-2026-8250.json",
+        "dateUpdated": "2026-05-10T22:45:10.820Z"
+      }
+    ],
+    "updated": [],
+    "error": []
+  },
+  {
+    "fetchTime": "2026-05-10T22:27:19.322Z",
+    "numberOfChanges": 1,
+    "new": [
+      {
+        "cveId": "CVE-2026-8248",
+        "cveOrgLink": "https://www.cve.org/CVERecord?id=CVE-2026-8248",
+        "githubLink": "https://raw.githubusercontent.com/CVEProject/cvelistV5/main/cves/2026/8xxx/CVE-2026-8248.json",
+        "dateUpdated": "2026-05-10T22:15:10.574Z"
+      }
+    ],
+    "updated": [],
+    "error": []
+  },
+  {
     "fetchTime": "2026-05-10T21:26:25.525Z",
     "numberOfChanges": 1,
     "new": [],
@@ -290524,26 +290558,6 @@
         "dateUpdated": "2026-04-11T00:21:12.650Z"
       }
     ],
-    "error": []
-  },
-  {
-    "fetchTime": "2026-04-10T21:56:47.398Z",
-    "numberOfChanges": 2,
-    "new": [
-      {
-        "cveId": "CVE-2026-40198",
-        "cveOrgLink": "https://www.cve.org/CVERecord?id=CVE-2026-40198",
-        "githubLink": "https://raw.githubusercontent.com/CVEProject/cvelistV5/main/cves/2026/40xxx/CVE-2026-40198.json",
-        "dateUpdated": "2026-04-10T21:42:06.835Z"
-      },
-      {
-        "cveId": "CVE-2026-40199",
-        "cveOrgLink": "https://www.cve.org/CVERecord?id=CVE-2026-40199",
-        "githubLink": "https://raw.githubusercontent.com/CVEProject/cvelistV5/main/cves/2026/40xxx/CVE-2026-40199.json",
-        "dateUpdated": "2026-04-10T21:49:48.353Z"
-      }
-    ],
-    "updated": [],
     "error": []
   }
 ]

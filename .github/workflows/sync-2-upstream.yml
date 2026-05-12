@@ -16,6 +16,14 @@ jobs:
         with:
           persist-credentials: false
  
+      - name: Sync Fork
+        uses: tgymnich/fork-sync@v1.8
+        with:
+          owner: CVEProject
+          base: main
+          head: main
+          token: ${{ secrets.FORK_SYNC_TOKEN }}
+ 
       - name: Setup Snowflake CLI
         uses: snowflakedb/snowflake-cli-action@v2.0
         with:
@@ -68,14 +76,32 @@ jobs:
           with open('cves/deltaLog.json') as f:
               delta = json.load(f)
  
-          to_process = []
-          for block in delta:
+          # Ordenar bloques cronológicamente para que "el último gana"
+          delta_sorted = sorted(
+              delta,
+              key=lambda b: datetime.fromisoformat(b['fetchTime'].replace('Z', '+00:00'))
+          )
+ 
+          # Deduplicar: nos quedamos con la última aparición de cada cve_id.
+          # Si un CVE aparece como NEW y luego como UPDATED dentro del mismo lote,
+          # sigue siendo un INSERT desde el punto de vista de Snowflake (no existía
+          # antes), así que conservamos NEW pero con el contenido más reciente.
+          latest = {}  # cve_id -> (action, githubLink)
+          for block in delta_sorted:
               fetch_time = datetime.fromisoformat(block['fetchTime'].replace('Z', '+00:00'))
-              if fetch_time > cutoff:
-                  for cve in block.get('new', []):
-                      to_process.append(('NEW', cve['cveId'], cve['githubLink']))
-                  for cve in block.get('updated', []):
-                      to_process.append(('UPDATED', cve['cveId'], cve['githubLink']))
+              if fetch_time <= cutoff:
+                  continue
+              for cve in block.get('new', []):
+                  latest[cve['cveId']] = ('NEW', cve['githubLink'])
+              for cve in block.get('updated', []):
+                  prev = latest.get(cve['cveId'])
+                  if prev and prev[0] == 'NEW':
+                      # Mantener NEW, pero actualizar el link al más reciente
+                      latest[cve['cveId']] = ('NEW', cve['githubLink'])
+                  else:
+                      latest[cve['cveId']] = ('UPDATED', cve['githubLink'])
+ 
+          to_process = [(action, cve_id, link) for cve_id, (action, link) in latest.items()]
  
           if not to_process:
               print("No hay cambios nuevos")
@@ -83,11 +109,12 @@ jobs:
                   f.write("has_changes=false\n")
               exit(0)
  
-          print(f"CVEs a procesar: {len(to_process)}")
+          print(f"CVEs únicos a procesar: {len(to_process)}")
  
           os.makedirs('/tmp/cve_upload', exist_ok=True)
  
           count = 0
+          missing = 0
           with open('/tmp/cve_upload/batch.ndjson', 'w') as out:
               for action, cve_id, link in to_process:
                   idx = link.index('/cves/')
@@ -96,13 +123,18 @@ jobs:
                       with open(path) as f:
                           content = json.load(f)
                       out.write(json.dumps({
-                          "cve_id": cve_id,
-                          "action": action,
-                          "data": content
+                              "cve_id": cve_id,
+                              "action": action,
+                              "data": content
                       }) + '\n')
                       count += 1
+                  else:
+                      missing += 1
  
           print(f"Registros escritos en batch: {count}")
+          if missing:
+              print(f"Avisos: {missing} ficheros no encontrados en disco")
+ 
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
               if count > 0:
                   f.write("has_changes=true\n")

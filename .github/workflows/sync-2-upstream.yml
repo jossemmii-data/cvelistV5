@@ -16,14 +16,6 @@ jobs:
         with:
           persist-credentials: false
  
-      - name: Sync Fork
-        uses: tgymnich/fork-sync@v1.8
-        with:
-          owner: CVEProject
-          base: main
-          head: main
-          token: ${{ secrets.FORK_SYNC_TOKEN }}
- 
       - name: Setup Snowflake CLI
         uses: snowflakedb/snowflake-cli-action@v2.0
         with:

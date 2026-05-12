@@ -43,7 +43,7 @@ jobs:
       - name: Get cutoff date from Snowflake
         id: cutoff
         run: |
-          CUTOFF=$(snow sql -q "SELECT COALESCE(MAX(date_loaded), '1970-01-01T00:00:00Z'::TIMESTAMP_NTZ)::STRING AS cutoff FROM cve_vulnerabilities" --format json | jq -r '.[0].CUTOFF')
+          CUTOFF=$(snow sql -q "SELECT COALESCE(TO_VARCHAR(MAX(date_loaded), 'YYYY-MM-DD\"T\"HH24:MI:SS.FF3\"Z\"'), '1970-01-01T00:00:00.000Z') AS cutoff FROM cve_vulnerabilities" --format json | jq -r '.[0].CUTOFF')
           if [ -z "$CUTOFF" ] || [ "$CUTOFF" = "null" ]; then
             echo "Error: no se pudo obtener el cutoff"
             exit 1
@@ -59,36 +59,34 @@ jobs:
           from datetime import datetime, timezone
  
           cutoff_str = "${{ steps.cutoff.outputs.cutoff }}"
-          # Normalizar: si no tiene tz, asumimos UTC
-          if 'Z' in cutoff_str or '+' in cutoff_str:
-              cutoff = datetime.fromisoformat(cutoff_str.replace('Z', '+00:00'))
-          else:
-              cutoff = datetime.fromisoformat(cutoff_str).replace(tzinfo=timezone.utc)
+          cutoff = datetime.fromisoformat(cutoff_str.replace('Z', '+00:00'))
  
           with open('cves/deltaLog.json') as f:
               delta = json.load(f)
  
-          # Ordenar bloques cronológicamente para que "el último gana"
+          # Recorremos los bloques en orden cronológico para que "el último gana"
+          # en caso de que un mismo cve_id aparezca varias veces.
           delta_sorted = sorted(
               delta,
               key=lambda b: datetime.fromisoformat(b['fetchTime'].replace('Z', '+00:00'))
           )
  
-          # Deduplicar: nos quedamos con la última aparición de cada cve_id.
-          # Si un CVE aparece como NEW y luego como UPDATED dentro del mismo lote,
-          # sigue siendo un INSERT desde el punto de vista de Snowflake (no existía
-          # antes), así que conservamos NEW pero con el contenido más reciente.
+          # Filtramos a nivel de CVE (no de bloque) comparando su dateUpdated
+          # contra el cutoff. Así cutoff y filtro viven en la misma escala temporal.
           latest = {}  # cve_id -> (action, githubLink)
           for block in delta_sorted:
-              fetch_time = datetime.fromisoformat(block['fetchTime'].replace('Z', '+00:00'))
-              if fetch_time <= cutoff:
-                  continue
               for cve in block.get('new', []):
+                  cve_updated = datetime.fromisoformat(cve['dateUpdated'].replace('Z', '+00:00'))
+                  if cve_updated <= cutoff:
+                      continue
                   latest[cve['cveId']] = ('NEW', cve['githubLink'])
               for cve in block.get('updated', []):
+                  cve_updated = datetime.fromisoformat(cve['dateUpdated'].replace('Z', '+00:00'))
+                  if cve_updated <= cutoff:
+                      continue
                   prev = latest.get(cve['cveId'])
                   if prev and prev[0] == 'NEW':
-                      # Mantener NEW, pero actualizar el link al más reciente
+                      # Si en este lote apareció primero como NEW, sigue siendo INSERT
                       latest[cve['cveId']] = ('NEW', cve['githubLink'])
                   else:
                       latest[cve['cveId']] = ('UPDATED', cve['githubLink'])
@@ -115,9 +113,9 @@ jobs:
                       with open(path) as f:
                           content = json.load(f)
                       out.write(json.dumps({
-                              "cve_id": cve_id,
-                              "action": action,
-                              "data": content
+                          "cve_id": cve_id,
+                          "action": action,
+                          "data": content
                       }) + '\n')
                       count += 1
                   else:

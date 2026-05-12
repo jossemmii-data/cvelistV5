@@ -3,11 +3,11 @@ on:
   schedule:
     - cron: '00 * * * *'
   workflow_dispatch:
-
+ 
 permissions:
   id-token: write
   contents: read
-
+ 
 jobs:
   sync:
     runs-on: ubuntu-latest
@@ -15,7 +15,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-
+ 
       - name: Sync Fork
         uses: tgymnich/fork-sync@v1.8
         with:
@@ -23,13 +23,13 @@ jobs:
           base: main
           head: main
           token: ${{ secrets.FORK_SYNC_TOKEN }}
-
+ 
       - name: Setup Snowflake CLI
         uses: snowflakedb/snowflake-cli-action@v2.0
         with:
           use-oidc: true
           cli-version: "3.11"
-
+ 
       - name: Configure Snowflake Connection
         env:
           SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
@@ -47,26 +47,35 @@ jobs:
           authenticator = "WORKLOAD_IDENTITY"
           EOF
           chmod 0600 ~/.snowflake/config.toml
-
+ 
       - name: Get cutoff date from Snowflake
         id: cutoff
         run: |
-          CUTOFF=$(snow sql -q "SELECT COALESCE(MAX(date_loaded), '1970-01-01T00:00:00Z'::TIMESTAMP_NTZ)::STRING FROM cve_vulnerabilities" --format json | jq -r '.[0][0]')
+          CUTOFF=$(snow sql -q "SELECT COALESCE(MAX(date_loaded), '1970-01-01T00:00:00Z'::TIMESTAMP_NTZ)::STRING AS cutoff FROM cve_vulnerabilities" --format json | jq -r '.[0].CUTOFF')
+          if [ -z "$CUTOFF" ] || [ "$CUTOFF" = "null" ]; then
+            echo "Error: no se pudo obtener el cutoff"
+            exit 1
+          fi
           echo "cutoff=$CUTOFF" >> $GITHUB_OUTPUT
-
+          echo "Cutoff: $CUTOFF"
+ 
       - name: Build NDJSON batch
         id: build_batch
         run: |
           python3 << 'EOF'
           import json, os
           from datetime import datetime, timezone
-
+ 
           cutoff_str = "${{ steps.cutoff.outputs.cutoff }}"
-          cutoff = datetime.fromisoformat(cutoff_str.replace('Z', '+00:00'))
-
+          # Normalizar: si no tiene tz, asumimos UTC
+          if 'Z' in cutoff_str or '+' in cutoff_str:
+              cutoff = datetime.fromisoformat(cutoff_str.replace('Z', '+00:00'))
+          else:
+              cutoff = datetime.fromisoformat(cutoff_str).replace(tzinfo=timezone.utc)
+ 
           with open('cves/deltaLog.json') as f:
               delta = json.load(f)
-
+ 
           to_process = []
           for block in delta:
               fetch_time = datetime.fromisoformat(block['fetchTime'].replace('Z', '+00:00'))
@@ -75,17 +84,17 @@ jobs:
                       to_process.append(('NEW', cve['cveId'], cve['githubLink']))
                   for cve in block.get('updated', []):
                       to_process.append(('UPDATED', cve['cveId'], cve['githubLink']))
-
+ 
           if not to_process:
               print("No hay cambios nuevos")
               with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
                   f.write("has_changes=false\n")
               exit(0)
-
+ 
           print(f"CVEs a procesar: {len(to_process)}")
-
+ 
           os.makedirs('/tmp/cve_upload', exist_ok=True)
-
+ 
           count = 0
           with open('/tmp/cve_upload/batch.ndjson', 'w') as out:
               for action, cve_id, link in to_process:
@@ -100,18 +109,21 @@ jobs:
                           "data": content
                       }) + '\n')
                       count += 1
-
+ 
           print(f"Registros escritos en batch: {count}")
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-              f.write("has_changes=true\n")
+              if count > 0:
+                  f.write("has_changes=true\n")
+              else:
+                  f.write("has_changes=false\n")
           EOF
-
+ 
       - name: Upload batch to Snowflake stage
         if: steps.build_batch.outputs.has_changes == 'true'
         run: |
-          snow sql -q "REMOVE @GIT_REPO_DEMO.GIT.CVE_UPLOAD_STAGE/batch.ndjson"
+          snow sql -q "REMOVE @GIT_REPO_DEMO.GIT.CVE_UPLOAD_STAGE/batch.ndjson" || true
           snow stage copy /tmp/cve_upload/batch.ndjson @GIT_REPO_DEMO.GIT.CVE_UPLOAD_STAGE --overwrite
-
+ 
       - name: Execute Procedure
         if: steps.build_batch.outputs.has_changes == 'true'
         run: |

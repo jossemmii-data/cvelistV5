@@ -12,16 +12,21 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
+      # Step 1 -> Download repo code in the runner (ubuntu-latest)
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
- 
+
+      # Step 2 -> Initialize Snowflake CLI
+      ######### Credits: https://github.com/marketplace/actions/install-snowflake-cli
       - name: Setup Snowflake CLI
         uses: snowflakedb/snowflake-cli-action@v2.0
         with:
           use-oidc: true
           cli-version: "3.11"
- 
+
+      # Step 3 -> Connect with Snowflake
+      ######### Credits: https://github.com/marketplace/actions/install-snowflake-cli
       - name: Configure Snowflake Connection
         env:
           SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
@@ -29,115 +34,43 @@ jobs:
           SNOWFLAKE_SCHEMA: ${{ secrets.SNOWFLAKE_SCHEMA }}
           SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
         run: |
-          mkdir -p ~/.snowflake
-          cat > ~/.snowflake/config.toml << EOF
-          [connections.default]
+          mkdir -p ~/.snowflake                            # Create folder .snowflake
+          cat > ~/.snowflake/config.toml << EOF            # stdin to config.toml. EOF start
+          [connections.default]                            # Connection with previous variables
           account = "$SNOWFLAKE_ACCOUNT"
           database = "$SNOWFLAKE_DATABASE"
           schema = "$SNOWFLAKE_SCHEMA"
           warehouse = "$SNOWFLAKE_WAREHOUSE"
           authenticator = "WORKLOAD_IDENTITY"
-          EOF
-          chmod 0600 ~/.snowflake/config.toml
- 
-      - name: Get cutoff date from Snowflake
-        id: cutoff
+          EOF                                              # EOF end
+          chmod 0600 ~/.snowflake/config.toml              # [write, read] owner
+
+      # Step 4 -> Get max date (from last ingestion) from Snow
+      - name: Get max date from Snowflake
+        id: max                                            # id to use in next Steps
         run: |
-          CUTOFF=$(snow sql -q "SELECT COALESCE(TO_VARCHAR(MAX(date_loaded), 'YYYY-MM-DD\"T\"HH24:MI:SS.FF3\"Z\"'), '1970-01-01T00:00:00.000Z') AS cutoff FROM cve_vulnerabilities" --format json | jq -r '.[0].CUTOFF')
-          if [ -z "$CUTOFF" ] || [ "$CUTOFF" = "null" ]; then
-            echo "Error: no se pudo obtener el cutoff"
+          MAX=$(snow sql -q "SELECT COALESCE(TO_VARCHAR(MAX(date_loaded), 'YYYY-MM-DD\"T\"HH24:MI:SS.FF3\"Z\"'), '1970-01-01T00:00:00.000Z') AS max FROM cve_vulnerabilities" --format json | jq -r '.[0].MAX')
+          if [ -z "$MAX" ] || [ "$MAX" = "null" ]; then    # -z indicate MAX is empty
+            echo "Error with the max date."
             exit 1
           fi
-          echo "cutoff=$CUTOFF" >> $GITHUB_OUTPUT
-          echo "Cutoff: $CUTOFF"
- 
+          echo "max=$MAX" >> $GITHUB_OUTPUT                # Show max in output
+          echo "Max Date: $MAX"
+
+      # Step 5 -> Call build_batch.py to build full json with changes
       - name: Build NDJSON batch
         id: build_batch
-        run: |
-          python3 << 'EOF'
-          import json, os
-          from datetime import datetime, timezone
+        env:
+          MAX: ${{ steps.max.outputs.max }}
  
-          cutoff_str = "${{ steps.cutoff.outputs.cutoff }}"
-          cutoff = datetime.fromisoformat(cutoff_str.replace('Z', '+00:00'))
- 
-          with open('cves/deltaLog.json') as f:
-              delta = json.load(f)
- 
-          # Recorremos los bloques en orden cronológico para que "el último gana"
-          # en caso de que un mismo cve_id aparezca varias veces.
-          delta_sorted = sorted(
-              delta,
-              key=lambda b: datetime.fromisoformat(b['fetchTime'].replace('Z', '+00:00'))
-          )
- 
-          # Filtramos a nivel de CVE (no de bloque) comparando su dateUpdated
-          # contra el cutoff. Así cutoff y filtro viven en la misma escala temporal.
-          latest = {}  # cve_id -> (action, githubLink)
-          for block in delta_sorted:
-              for cve in block.get('new', []):
-                  cve_updated = datetime.fromisoformat(cve['dateUpdated'].replace('Z', '+00:00'))
-                  if cve_updated <= cutoff:
-                      continue
-                  latest[cve['cveId']] = ('NEW', cve['githubLink'])
-              for cve in block.get('updated', []):
-                  cve_updated = datetime.fromisoformat(cve['dateUpdated'].replace('Z', '+00:00'))
-                  if cve_updated <= cutoff:
-                      continue
-                  prev = latest.get(cve['cveId'])
-                  if prev and prev[0] == 'NEW':
-                      # Si en este lote apareció primero como NEW, sigue siendo INSERT
-                      latest[cve['cveId']] = ('NEW', cve['githubLink'])
-                  else:
-                      latest[cve['cveId']] = ('UPDATED', cve['githubLink'])
- 
-          to_process = [(action, cve_id, link) for cve_id, (action, link) in latest.items()]
- 
-          if not to_process:
-              print("No hay cambios nuevos")
-              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-                  f.write("has_changes=false\n")
-              exit(0)
- 
-          print(f"CVEs únicos a procesar: {len(to_process)}")
- 
-          os.makedirs('/tmp/cve_upload', exist_ok=True)
- 
-          count = 0
-          missing = 0
-          with open('/tmp/cve_upload/batch.ndjson', 'w') as out:
-              for action, cve_id, link in to_process:
-                  idx = link.index('/cves/')
-                  path = link[idx + 1:]
-                  if os.path.exists(path):
-                      with open(path) as f:
-                          content = json.load(f)
-                      out.write(json.dumps({
-                          "cve_id": cve_id,
-                          "action": action,
-                          "data": content
-                      }) + '\n')
-                      count += 1
-                  else:
-                      missing += 1
- 
-          print(f"Registros escritos en batch: {count}")
-          if missing:
-              print(f"Avisos: {missing} ficheros no encontrados en disco")
- 
-          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-              if count > 0:
-                  f.write("has_changes=true\n")
-              else:
-                  f.write("has_changes=false\n")
-          EOF
- 
+      # Step 6 -> Upload NDJSON to an internal stage
       - name: Upload batch to Snowflake stage
         if: steps.build_batch.outputs.has_changes == 'true'
         run: |
           snow sql -q "REMOVE @GIT_REPO_DEMO.GIT.CVE_UPLOAD_STAGE/batch.ndjson" || true
           snow stage copy /tmp/cve_upload/batch.ndjson @GIT_REPO_DEMO.GIT.CVE_UPLOAD_STAGE --overwrite
  
+      # Step 7 -> Execute the procedure in Snowflake
       - name: Execute Procedure
         if: steps.build_batch.outputs.has_changes == 'true'
         run: |

@@ -2,8 +2,9 @@ import json, os
 from datetime import datetime
 
 # Build date
-# Input date example -> "2026-05-13T14:30:00.000Z"
-# Output date (same than input, but usable) -> "2026-05-13T14:30:00.000Z+00:00"
+# Input  (str)        -> "2026-05-13T14:30:00.000Z"
+# Intermediate (str)  -> "2026-05-13T14:30:00.000+00:00"
+# Output (datetime)   -> datetime(2026, 5, 13, 14, 30, 0, tzinfo=UTC)
 def parse_iso(s):
     return datetime.fromisoformat(s.replace('Z', '+00:00'))
 
@@ -13,7 +14,7 @@ def set_output(key, value):
         f.write(f"{key}={value}\n")
 
 # Max Date
-cutoff = parse_iso("${{ steps.max.outputs.max }}")
+cutoff = parse_iso(os.environ['CUTOFF'])
 
 # Open deltaLog.json
 with open('cves/deltaLog.json') as f:

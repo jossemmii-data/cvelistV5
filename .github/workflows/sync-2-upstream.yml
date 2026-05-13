@@ -17,7 +17,17 @@ jobs:
         with:
           persist-credentials: false
 
-      # Step 2 -> Initialize Snowflake CLI
+      # Step 2 -> Sync the fork
+      ######### Credits: https://github.com/tgymnich/fork-sync
+      - name: Sync Fork
+        uses: tgymnich/fork-sync@v1.8
+        with:
+          owner: CVEProject
+          base: main
+          head: main
+          token: ${{ secrets.FORK_SYNC_TOKEN }}
+
+      # Step 3 -> Initialize Snowflake CLI
       ######### Credits: https://github.com/marketplace/actions/install-snowflake-cli
       - name: Setup Snowflake CLI
         uses: snowflakedb/snowflake-cli-action@v2.0
@@ -25,7 +35,7 @@ jobs:
           use-oidc: true
           cli-version: "3.11"
 
-      # Step 3 -> Connect with Snowflake
+      # Step 4 -> Connect with Snowflake
       ######### Credits: https://github.com/marketplace/actions/install-snowflake-cli
       - name: Configure Snowflake Connection
         env:
@@ -45,7 +55,7 @@ jobs:
           EOF                                              # EOF end
           chmod 0600 ~/.snowflake/config.toml              # [write, read] owner
 
-      # Step 4 -> Get max date (from last ingestion) from Snow
+      # Step 5 -> Get max date (from last ingestion) from Snow
       - name: Get max date from Snowflake
         id: max                                            # id to use in next Steps
         run: |
@@ -57,20 +67,20 @@ jobs:
           echo "max=$MAX" >> $GITHUB_OUTPUT                # Show max in output
           echo "Max Date: $MAX"
 
-      # Step 5 -> Call build_batch.py to build full json with changes
+      # Step 6 -> Call build_batch.py to build full json with changes
       - name: Build NDJSON batch
         id: build_batch
         env:
           MAX: ${{ steps.max.outputs.max }}
  
-      # Step 6 -> Upload NDJSON to an internal stage
+      # Step 7 -> Upload NDJSON to an internal stage
       - name: Upload batch to Snowflake stage
         if: steps.build_batch.outputs.has_changes == 'true'
         run: |
           snow sql -q "REMOVE @GIT_REPO_DEMO.GIT.CVE_UPLOAD_STAGE/batch.ndjson" || true
           snow stage copy /tmp/cve_upload/batch.ndjson @GIT_REPO_DEMO.GIT.CVE_UPLOAD_STAGE --overwrite
  
-      # Step 7 -> Execute the procedure in Snowflake
+      # Step 8 -> Execute the procedure in Snowflake
       - name: Execute Procedure
         if: steps.build_batch.outputs.has_changes == 'true'
         run: |
